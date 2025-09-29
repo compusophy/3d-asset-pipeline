@@ -28,3 +28,11 @@ export interface Blueprint {
   createdAt: string;
   riggingData: RigJoint[];
 }
+
+export interface Animation {
+  id: string;
+  name: string;
+  prompt: string;
+  code: string;
+  createdAt: string;
+}

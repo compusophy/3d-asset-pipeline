@@ -128,20 +128,25 @@ export const generateThreeJsCode = async (
 - Create basic geometries (BoxGeometry, CylinderGeometry) and MeshStandardMaterial for each component.
 - Combine all meshes into a single THREE.Group. Make sure the bones are also added to this group's hierarchy.
 - Position the components relative to each other to assemble the final object at the scene's origin (0,0,0).
+- CRITICAL: Ensure all variable names (using 'const' or 'let') are unique. Do not declare the same variable identifier more than once in the entire function body.
 - DO NOT use SkinnedMesh for this simple object.
 - You MUST return the final group object. Your code MUST end with 'return your_group_variable;'`;
 
     const animatedModelInstruction = `You are an expert Three.js developer specializing in character animation, using r164. Your task is to write the body of a JavaScript function that returns a SkinnedMesh.
-- The function receives the 'THREE' library object as an argument.
+- The function receives the 'THREE' library object and the 'BufferGeometryUtils' helper object as arguments.
 - You will be given a skeleton structure and a list of geometric components.
 - You MUST construct a hierarchy of THREE.Bone objects matching the provided skeleton.
+- ERROR PREVENTION: First, create a Map to store the index of each bone, keyed by its name. This is essential for safely looking up bone indices later. Example: \`const boneIndexMap = new Map(); skeleton.bones.forEach((bone, index) => boneIndexMap.set(bone.name, index));\`. When you need a bone's index for the skinIndex attribute, you MUST retrieve it from this map.
 - You MUST create geometries and materials for each component.
 - IMPORTANT: For materials like MeshStandardMaterial, DO NOT set the 'skinning: true' property. The renderer enables skinning automatically for a SkinnedMesh. Setting it will cause an error.
-- You MUST merge all geometries into a single BufferGeometry.
-- You MUST define skinIndices and skinWeights for the vertices of the merged geometry, binding them to the appropriate bones. This is the most critical step. Each vertex should be influenced by 1 to 4 bones.
-- You MUST create a THREE.SkinnedMesh using the merged geometry and a material.
+- You MUST merge all geometries into a single BufferGeometry. Use the provided 'BufferGeometryUtils.mergeGeometries(geometries, true)' function for this. The 'geometries' should be an array of the component geometries, and the 'true' argument correctly sets up material groups.
+- Before merging, you MUST define skinIndices and skinWeights for the vertices of EACH individual geometry, binding them to the appropriate bones. This is the most critical step. Each vertex should be influenced by 1 to 4 bones.
+- CRITICAL API USAGE: To access a vertex position at index 'i' from a position attribute (e.g., const position = geometry.attributes.position;), you MUST use position.getX(i), position.getY(i), and position.getZ(i). DO NOT use non-existent methods like 'getXYZ'.
+- CRITICAL: Ensure all variable names (using 'const' or 'let') are unique. Do not declare the same variable identifier more than once in the entire function body.
+- You MUST create a THREE.SkinnedMesh using the merged geometry and an array of materials.
 - You MUST bind the SkinnedMesh to a THREE.Skeleton created from your bone hierarchy.
 - The final SkinnedMesh should be centered at the origin, in a T-Pose.
+- DO NOT use the non-existent 'setGroups()' method. Using 'mergeGeometries' with 'useGroups=true' handles this correctly.
 - Your code MUST end with 'return your_skinned_mesh_variable;'`;
 
     const userPrompt = `
@@ -180,6 +185,7 @@ export const improveThreeJsCode = async (
 - You will be given the original prompt, a reference image, the current JavaScript code, and a new improvement instruction.
 - You MUST analyze all these inputs to understand the context.
 - Your goal is to modify the provided code to satisfy the improvement instruction while staying true to the original concept and reference image.
+- CRITICAL: Ensure all variable names (using 'const' or 'let') are unique. Do not declare the same variable identifier more than once in the entire function body.
 ${hasRig ? "- CRITICAL: The model is a SkinnedMesh. You MUST preserve the skeleton, bone hierarchy, skin indices, and skin weights. ONLY modify geometries, materials, and positions. IMPORTANT: DO NOT set 'skinning: true' on materials." : ""}
 - The output MUST be the complete, modified, raw JavaScript code for the function body.
 - The code must end with a return statement (e.g., 'return your_group_variable;').

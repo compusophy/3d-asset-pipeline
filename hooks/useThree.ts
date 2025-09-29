@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 export interface AnimationControls {
   play: () => void;
@@ -18,8 +19,12 @@ export const useThree = (code: string | null, animationCode: string | null = nul
   const clockRef = useRef(new THREE.Clock());
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<THREE.AnimationAction | null>(null);
+  const requestRef = useRef<number>();
 
   const cleanup = useCallback(() => {
+     if (requestRef.current) {
+      cancelAnimationFrame(requestRef.current);
+    }
     if (rendererRef.current) {
         rendererRef.current.dispose();
         if (mountRef.current && mountRef.current.contains(rendererRef.current.domElement)) {
@@ -59,10 +64,9 @@ export const useThree = (code: string | null, animationCode: string | null = nul
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controlsRef.current = controls;
-
-    let animationFrameId: number;
+    
     const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
+      requestRef.current = requestAnimationFrame(animate);
       const delta = clockRef.current.getDelta();
       if(mixerRef.current) {
         mixerRef.current.update(delta);
@@ -72,17 +76,20 @@ export const useThree = (code: string | null, animationCode: string | null = nul
     };
     animate();
 
-    const handleResize = () => {
-      if (!currentMount || !cameraRef.current || !rendererRef.current) return;
-      cameraRef.current.aspect = currentMount.clientWidth / currentMount.clientHeight;
-      cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(currentMount.clientWidth, currentMount.clientHeight);
-    };
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(entries => {
+        if (!entries || entries.length === 0) return;
+        const { width, height } = entries[0].contentRect;
+        if (cameraRef.current && rendererRef.current) {
+            cameraRef.current.aspect = width / height;
+            cameraRef.current.updateProjectionMatrix();
+            rendererRef.current.setSize(width, height);
+        }
+    });
+
+    resizeObserver.observe(currentMount);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
-      cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
       cleanup();
     };
   }, [cleanup]);
@@ -109,8 +116,8 @@ export const useThree = (code: string | null, animationCode: string | null = nul
       }
 
       try {
-        const createAsset = new Function('THREE', code);
-        const newAsset = createAsset(THREE);
+        const createAsset = new Function('THREE', 'BufferGeometryUtils', code);
+        const newAsset = createAsset(THREE, BufferGeometryUtils);
         
         if (newAsset instanceof THREE.Object3D) {
             scene.add(newAsset);

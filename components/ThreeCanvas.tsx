@@ -4,7 +4,7 @@ import { useThree, AnimationControls } from '../hooks/useThree';
 interface ThreeCanvasProps {
   code: string | null;
   animationCode?: string | null;
-  onAnimationControlsReady: (controls: AnimationControls) => void;
+  onAnimationControlsReady?: (controls: AnimationControls) => void;
 }
 
 export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({ code, animationCode, onAnimationControlsReady }) => {
@@ -16,5 +16,5 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({ code, animationCode, o
     }
   }, [animationControls, onAnimationControlsReady]);
 
-  return <div ref={mountRef} className="w-full h-full rounded-xl overflow-hidden border-2 border-gray-700" />;
+  return <div ref={mountRef} className="w-full h-full" />;
 };
