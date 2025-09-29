@@ -1,14 +1,23 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-export const useThree = (code: string | null) => {
+export interface AnimationControls {
+  play: () => void;
+  pause: () => void;
+  restart: () => void;
+}
+
+export const useThree = (code: string | null, animationCode: string | null = null) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const assetGroupRef = useRef<THREE.Group | null>(null);
+  const assetRef = useRef<THREE.Object3D | null>(null);
+  const clockRef = useRef(new THREE.Clock());
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const actionRef = useRef<THREE.AnimationAction | null>(null);
 
   const cleanup = useCallback(() => {
     if (rendererRef.current) {
@@ -18,16 +27,17 @@ export const useThree = (code: string | null) => {
         }
         rendererRef.current = null;
     }
+    mixerRef.current = null;
+    actionRef.current = null;
   }, []);
 
   useEffect(() => {
     if (!mountRef.current) return;
 
-    // Basic setup
     const currentMount = mountRef.current;
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.background = new THREE.Color(0x111827); // bg-gray-900
+    scene.background = new THREE.Color(0x111827);
 
     const camera = new THREE.PerspectiveCamera(75, currentMount.clientWidth / currentMount.clientHeight, 0.1, 1000);
     camera.position.z = 5;
@@ -39,29 +49,29 @@ export const useThree = (code: string | null) => {
     currentMount.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
 
-    // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controlsRef.current = controls;
 
-    // Animation loop
     let animationFrameId: number;
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
+      const delta = clockRef.current.getDelta();
+      if(mixerRef.current) {
+        mixerRef.current.update(delta);
+      }
       controls.update();
       renderer.render(scene, camera);
     };
     animate();
 
-    // Resize handler
     const handleResize = () => {
       if (!currentMount || !cameraRef.current || !rendererRef.current) return;
       cameraRef.current.aspect = currentMount.clientWidth / currentMount.clientHeight;
@@ -80,11 +90,12 @@ export const useThree = (code: string | null) => {
   useEffect(() => {
     if (code && sceneRef.current) {
       const scene = sceneRef.current;
+      mixerRef.current = null;
+      actionRef.current = null;
       
-      // Clear previous asset
-      if (assetGroupRef.current) {
-        scene.remove(assetGroupRef.current);
-        assetGroupRef.current.traverse((object) => {
+      if (assetRef.current) {
+        scene.remove(assetRef.current);
+        assetRef.current.traverse((object) => {
             if (object instanceof THREE.Mesh) {
                 object.geometry.dispose();
                 if (Array.isArray(object.material)) {
@@ -94,28 +105,57 @@ export const useThree = (code: string | null) => {
                 }
             }
         });
-        assetGroupRef.current = null;
+        assetRef.current = null;
       }
 
       try {
-        // Execute new code, which should return a THREE.Group
         const createAsset = new Function('THREE', code);
-        const newGroup = createAsset(THREE);
+        const newAsset = createAsset(THREE);
         
-        if (newGroup instanceof THREE.Group) {
-            scene.add(newGroup);
-            assetGroupRef.current = newGroup;
+        if (newAsset instanceof THREE.Object3D) {
+            scene.add(newAsset);
+            assetRef.current = newAsset;
 
-            // Optional: Auto-focus camera on the new object
+            if (animationCode) {
+                try {
+                    let skinnedMesh: THREE.SkinnedMesh | null = null;
+                    newAsset.traverse(object => {
+                        if (object instanceof THREE.SkinnedMesh) {
+                            skinnedMesh = object;
+                        }
+                    });
+
+                    if (skinnedMesh) {
+                        const boneNames = skinnedMesh.skeleton.bones.map(b => b.name);
+                        const createAnimation = new Function('THREE', 'boneNames', animationCode);
+                        const clip = createAnimation(THREE, boneNames);
+
+                        if (clip instanceof THREE.AnimationClip) {
+                            const mixer = new THREE.AnimationMixer(skinnedMesh);
+                            const action = mixer.clipAction(clip);
+                            action.setLoop(THREE.LoopRepeat, Infinity).play();
+                            mixerRef.current = mixer;
+                            actionRef.current = action;
+                        } else {
+                            console.error("Animation code did not return a THREE.AnimationClip object.");
+                        }
+                    } else {
+                        console.warn("Animation code provided, but no SkinnedMesh found in the asset.");
+                    }
+                } catch (e) {
+                     console.error("Error executing generated animation code:", e);
+                }
+            }
+
             if (cameraRef.current && controlsRef.current) {
-                 const box = new THREE.Box3().setFromObject(newGroup);
+                 const box = new THREE.Box3().setFromObject(newAsset);
                  const center = box.getCenter(new THREE.Vector3());
                  const size = box.getSize(new THREE.Vector3());
                  const maxDim = Math.max(size.x, size.y, size.z);
                  const fov = cameraRef.current.fov * (Math.PI / 180);
                  let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
                  
-                 cameraZ *= 1.5; // zoom out a bit
+                 cameraZ *= 1.5;
                  
                  cameraRef.current.position.z = center.z + cameraZ;
                  cameraRef.current.position.x = center.x;
@@ -126,13 +166,35 @@ export const useThree = (code: string | null) => {
             }
 
         } else {
-            console.error("Generated code did not return a THREE.Group object.");
+            console.error("Generated code did not return a valid THREE.Object3D.");
         }
       } catch (error) {
         console.error("Error executing generated Three.js code:", error);
       }
     }
-  }, [code]);
+  }, [code, animationCode]);
 
-  return mountRef;
+  const animationControls = useMemo<AnimationControls>(() => ({
+    play: () => {
+      if (actionRef.current) {
+        actionRef.current.paused = false;
+        if (!actionRef.current.isRunning()) {
+          actionRef.current.play();
+        }
+      }
+    },
+    pause: () => {
+      if (actionRef.current) {
+        actionRef.current.paused = true;
+      }
+    },
+    restart: () => {
+      if (actionRef.current) {
+        actionRef.current.reset().play();
+        actionRef.current.paused = false;
+      }
+    },
+  }), []);
+
+  return { mountRef, animationControls };
 };

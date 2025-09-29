@@ -12,6 +12,12 @@ export interface AssetComponent {
   color: string;
 }
 
+export interface RigJoint {
+  name: string;
+  parent: string | null;
+  position: [number, number, number];
+}
+
 export interface Blueprint {
   id: string;
   name: string;
@@ -20,4 +26,5 @@ export interface Blueprint {
   assetComponents: AssetComponent[];
   threeJsCode: string;
   createdAt: string;
+  riggingData: RigJoint[];
 }
