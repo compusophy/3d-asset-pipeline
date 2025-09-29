@@ -1,0 +1,5 @@
+{
+  "name": "Gemini 3D Asset Pipeline",
+  "description": "A multi-step AI pipeline that generates 3D game assets for Three.js. The process flows from a text prompt to image generation, component analysis, Three.js code generation, and finally, a live 3D render.",
+  "requestFramePermissions": []
+}
