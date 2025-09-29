@@ -16,6 +16,7 @@ import { AnimationControls } from './components/AnimationControls';
 import { AnimationLibrary } from './components/AnimationLibrary';
 import { SaveControls } from './components/SaveControls';
 import { AnimationPlaybackControls, IAnimationPlaybackControls } from './components/AnimationPlaybackControls';
+import { PipelineStepCard } from './components/PipelineStepCard';
 import Loader from './components/Loader';
 import ErrorDisplay from './components/ErrorDisplay';
 
@@ -27,6 +28,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Render');
+  const [viewMode, setViewMode] = useState<'tab' | 'pipeline'>('tab');
 
   // Pipeline data state
   const [prompt, setPrompt] = useState<string>('');
@@ -69,17 +71,21 @@ const App: React.FC = () => {
       
       const { basePrompt, animation: requestedAnimation } = analyzeActionablePrompt(userPrompt);
       setPrompt(basePrompt);
+      setActiveTab('Prompt');
 
       setCurrentStep(PipelineStep.IMAGE_GENERATION);
       setIsLoading(true);
+
       setLoadingMessage('Generating image...');
       const image = await geminiService.generateImage(basePrompt);
       setGeneratedImage(image);
+      setActiveTab('Image');
       
       setCurrentStep(PipelineStep.ANALYSIS);
       setLoadingMessage('Analyzing components...');
       const components = await geminiService.analyzeImage(image);
       setAssetComponents(components);
+      setActiveTab('Analysis');
 
       setLoadingMessage('Creating skeleton...');
       const rig = await geminiService.generateRiggingData(components, basePrompt);
@@ -89,10 +95,11 @@ const App: React.FC = () => {
       setLoadingMessage('Writing Three.js code...');
       const code = await geminiService.generateThreeJsCode(components, basePrompt, rig);
       setThreeJsCode(code);
+      setActiveTab('Code');
 
-      setActiveTab('Render');
       setCurrentStep(PipelineStep.RENDER);
       setIsLoading(false);
+      setActiveTab('Render');
 
       if (requestedAnimation) {
           await handleGenerateAnimation(requestedAnimation);
@@ -250,7 +257,6 @@ const App: React.FC = () => {
           if (typeof content !== 'string') throw new Error("File is not valid text.");
           const newAnimation = JSON.parse(content) as Animation;
           
-          // Basic validation
           if (!newAnimation.id || !newAnimation.name || !newAnimation.code) {
              throw new Error("Invalid animation file format.");
           }
@@ -270,9 +276,9 @@ const App: React.FC = () => {
     }
   };
 
-  const renderContent = () => {
+  const renderContentForTabView = () => {
       switch(activeTab) {
-          case 'Prompt': return <PromptDisplay prompt={prompt} />;
+          case 'Prompt': return prompt ? <PromptDisplay prompt={prompt} /> : null;
           case 'Image': return generatedImage ? <ImageDisplay base64Image={generatedImage} /> : null;
           case 'Analysis': return assetComponents ? <AnalysisDisplay components={assetComponents} /> : null;
           case 'Code': return threeJsCode ? <CodeEditor code={threeJsCode} onCodeChange={setThreeJsCode} /> : null;
@@ -324,41 +330,81 @@ const App: React.FC = () => {
       }
   }
 
+  const renderPipelineContent = () => {
+    if (viewMode === 'tab') {
+      return (
+        <>
+          <div className="flex-shrink-0 flex items-center border-b border-gray-700">
+            {PIPELINE_TABS.map(tab => (
+              <button
+                key={tab}
+                disabled={!prompt}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors disabled:text-gray-600 disabled:cursor-not-allowed ${
+                  activeTab === tab 
+                    ? 'text-indigo-300 border-indigo-400' 
+                    : 'text-gray-400 border-transparent hover:bg-gray-800'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <div className="flex-grow p-4 min-h-0 bg-gray-800/50">
+            {renderContentForTabView()}
+          </div>
+        </>
+      );
+    }
 
-  const renderPipeline = () => (
+    if (viewMode === 'pipeline') {
+      return (
+        <div className="flex-grow p-4 min-h-0 bg-gray-800/50 flex items-stretch space-x-4 overflow-x-auto">
+          {prompt && <PipelineStepCard title="Prompt" className="w-80"><PromptDisplay prompt={prompt} /></PipelineStepCard>}
+          {generatedImage && <PipelineStepCard title="Image" className="w-96 h-96 self-center"><ImageDisplay base64Image={generatedImage} /></PipelineStepCard>}
+          {assetComponents && <PipelineStepCard title="Analysis" className="w-96"><AnalysisDisplay components={assetComponents} /></PipelineStepCard>}
+          {threeJsCode && <PipelineStepCard title="Code" className="w-[500px]"><CodeEditor code={threeJsCode} onCodeChange={setThreeJsCode} /></PipelineStepCard>}
+          {threeJsCode && (
+            <PipelineStepCard title="Render" className="w-[500px]">
+              <div className="w-full h-full rounded-lg overflow-hidden border border-gray-600">
+                <ThreeCanvas code={threeJsCode} />
+              </div>
+            </PipelineStepCard>
+          )}
+          {animationCode && (
+            <PipelineStepCard title="Animate" className="w-[500px]">
+              <div className="w-full h-full rounded-lg overflow-hidden border border-gray-600 relative">
+                <ThreeCanvas code={threeJsCode} animationCode={animationCode} onAnimationControlsReady={setAnimationControls} />
+                {animationControls && (
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+                    <AnimationPlaybackControls controls={animationControls} />
+                  </div>
+                )}
+              </div>
+            </PipelineStepCard>
+          )}
+        </div>
+      );
+    }
+  };
+
+  const renderPipelineContainer = () => (
     <div className="flex flex-col h-full overflow-hidden">
-        <header className="flex-shrink-0 p-2 flex justify-between items-center border-b border-gray-700 bg-gray-900 z-20">
-            <h1 className="text-lg font-bold text-indigo-300 truncate" title={prompt}>
+        <header className="flex-shrink-0 p-2 flex justify-between items-center border-b border-gray-700 bg-gray-900 z-20 gap-4">
+            <h1 className="text-lg font-bold text-indigo-300 truncate flex-shrink min-w-0" title={prompt}>
                 {prompt ? `Editing: "${prompt}"` : 'Gemini 3D Pipeline'}
             </h1>
+            <div className="flex-shrink-0 flex items-center gap-2 p-1 bg-gray-800 rounded-md">
+              <button onClick={() => setViewMode('tab')} className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === 'tab' ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-700'}`}>Tab View</button>
+              <button onClick={() => setViewMode('pipeline')} className={`px-3 py-1 text-xs rounded transition-colors ${viewMode === 'pipeline' ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-400 hover:bg-gray-700'}`}>Pipeline View</button>
+            </div>
              <SaveControls
                 isBlueprintLoaded={!!loadedBlueprintId}
                 onSaveNew={() => handleSaveBlueprint(true)}
                 onUpdate={() => handleSaveBlueprint(false)}
             />
         </header>
-        
-        {/* TABS */}
-        <div className="flex-shrink-0 flex items-center border-b border-gray-700">
-            {PIPELINE_TABS.map(tab => (
-                <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
-                        activeTab === tab 
-                            ? 'text-indigo-300 border-indigo-400' 
-                            : 'text-gray-400 border-transparent hover:bg-gray-800'
-                    }`}
-                >
-                    {tab}
-                </button>
-            ))}
-        </div>
-
-        {/* CONTENT */}
-        <div className="flex-grow p-4 min-h-0 bg-gray-800/50">
-           {renderContent()}
-        </div>
+        {renderPipelineContent()}
     </div>
   );
 
@@ -369,7 +415,6 @@ const App: React.FC = () => {
         {error && <ErrorDisplay message={error} onClear={() => setError(null)} />}
         <input type="file" ref={importBlueprintInputRef} onChange={() => {}} className="hidden" accept=".json" />
         <input type="file" ref={importAnimationInputRef} onChange={handleImportAnimation} className="hidden" accept=".json" />
-
 
         {currentStep === PipelineStep.PROMPT ? (
             <div className="flex flex-col h-full">
@@ -383,7 +428,7 @@ const App: React.FC = () => {
                     <BlueprintLibrary blueprints={savedBlueprints} onLoad={handleLoadBlueprint} onDelete={handleDeleteBlueprint} onImport={() => importBlueprintInputRef.current?.click()} />
                 </div>
             </div>
-        ) : renderPipeline()}
+        ) : renderPipelineContainer()}
       </main>
     </div>
   );
